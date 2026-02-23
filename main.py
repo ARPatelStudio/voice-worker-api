@@ -11,7 +11,7 @@ MODEL_PATH = "/app/models/voice.onnx"
 TEMP_DIR = "/tmp"
 
 # Initialize FastAPI application
-app = FastAPI(title="Piper TTS Microservice", version="1.4.3")
+app = FastAPI(title="Piper TTS Microservice", version="1.4.4")
 
 # Pydantic schema for request validation
 class TTSRequest(BaseModel):
@@ -36,7 +36,8 @@ def health_check():
 @app.post("/generate-audio")
 def generate_audio(request: TTSRequest, background_tasks: BackgroundTasks):
     """
-    Generates a .wav audio file from the provided text.
+    Generates a .wav audio file from the provided text using raw PCM streams.
+    This completely bypasses the Piper/Wave conflict.
     """
     if not os.path.exists(MODEL_PATH):
         raise HTTPException(status_code=500, detail="TTS Model file is missing.")
@@ -49,13 +50,19 @@ def generate_audio(request: TTSRequest, background_tasks: BackgroundTasks):
         voice_model = PiperVoice.load(MODEL_PATH)
         
         print(f"🎙️ Synthesizing audio for: '{request.text[:40]}...'")
+        
+        # FIX: Ask Piper for Raw Audio Data instead of letting it write the file
+        audio_stream = voice_model.synthesize_stream_raw(request.text)
+        
+        # Manually construct a perfect WAV file
         with wave.open(output_filepath, "wb") as wav_file:
-            # FIX: Adding the 3 missing wave configuration lines back!
             wav_file.setnchannels(1)  # 1 channel (Mono)
             wav_file.setsampwidth(2)  # 2 bytes (16-bit audio)
-            wav_file.setframerate(voice_model.config.sample_rate)  # Use model's native sample rate
+            wav_file.setframerate(voice_model.config.sample_rate)  # Native sample rate
             
-            voice_model.synthesize(request.text, wav_file)
+            # Write raw audio frames safely
+            for pcm_chunk in audio_stream:
+                wav_file.writeframes(pcm_chunk)
 
         # Schedule the cleanup task
         background_tasks.add_task(cleanup_file, output_filepath)
