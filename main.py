@@ -11,7 +11,7 @@ MODEL_PATH = "/app/models/voice.onnx"
 TEMP_DIR = "/tmp"
 
 # Initialize FastAPI application
-app = FastAPI(title="Piper TTS Microservice", version="1.4.2")
+app = FastAPI(title="Piper TTS Microservice", version="1.4.3")
 
 # Pydantic schema for request validation
 class TTSRequest(BaseModel):
@@ -37,7 +37,6 @@ def health_check():
 def generate_audio(request: TTSRequest, background_tasks: BackgroundTasks):
     """
     Generates a .wav audio file from the provided text.
-    Loads the model per request to prevent ONNX thread lock/blank audio issues.
     """
     if not os.path.exists(MODEL_PATH):
         raise HTTPException(status_code=500, detail="TTS Model file is missing.")
@@ -47,11 +46,15 @@ def generate_audio(request: TTSRequest, background_tasks: BackgroundTasks):
 
     try:
         print(f"🚀 Loading Piper Model for request...")
-        # FIX: Load model directly inside the request to make it stateless
         voice_model = PiperVoice.load(MODEL_PATH)
         
         print(f"🎙️ Synthesizing audio for: '{request.text[:40]}...'")
         with wave.open(output_filepath, "wb") as wav_file:
+            # FIX: Adding the 3 missing wave configuration lines back!
+            wav_file.setnchannels(1)  # 1 channel (Mono)
+            wav_file.setsampwidth(2)  # 2 bytes (16-bit audio)
+            wav_file.setframerate(voice_model.config.sample_rate)  # Use model's native sample rate
+            
             voice_model.synthesize(request.text, wav_file)
 
         # Schedule the cleanup task
