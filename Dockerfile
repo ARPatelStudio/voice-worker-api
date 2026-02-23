@@ -12,7 +12,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create models directory and fetch the HIGH-QUALITY DEEP MALE VOICE (Ryan Medium)
+# Create models directory and fetch the HIGH-QUALITY US ENGLISH MALE VOICE (Ryan)
 RUN mkdir -p /app/models
 RUN wget -O /app/models/voice.onnx "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx?download=true"
 RUN wget -O /app/models/voice.onnx.json "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx.json?download=true"
