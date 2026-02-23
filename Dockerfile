@@ -25,8 +25,8 @@ RUN wget -O /app/models/lessac.onnx.json "https://huggingface.co/rhasspy/piper-v
 RUN wget -O /app/models/alan.onnx "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx?download=true"
 RUN wget -O /app/models/alan.onnx.json "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx.json?download=true"
 
-# 🎵 NAYA: Download Royalty-Free Suspense Background Music
-RUN wget -O /app/suspense_bgm.ogg "https://upload.wikimedia.org/wikipedia/commons/2/25/Dark_Ambient_Loop.ogg"
+# 🎵 NAYA FIX: Working Download link for Royalty-Free Suspense Background Music
+RUN wget -O /app/suspense_bgm.ogg "https://raw.githubusercontent.com/wesnoth/wesnoth/master/data/core/music/suspense.ogg"
 
 # Copy the application code
 COPY . .
