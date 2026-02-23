@@ -6,97 +6,139 @@ from piper.voice import PiperVoice
 import os
 import uuid
 import wave
+import logging
 
-# Define constants
+# ==========================
+# CONFIGURATION
+# ==========================
+
 MODEL_PATH = "/app/models/voice.onnx"
 TEMP_DIR = "/tmp"
+os.makedirs(TEMP_DIR, exist_ok=True)
 
-# Global dictionary to maintain ML models in memory
+# Setup Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("piper-tts")
+
+# In-memory model storage
 ml_models = {}
+
+# ==========================
+# APP LIFESPAN
+# ==========================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Lifespan context manager for handling startup and shutdown events.
-    Loads the Piper TTS model into memory on startup and clears it on shutdown.
-    """
-    print("🚀 Starting up: Loading Piper TTS Model...")
+    logger.info("🚀 Starting up: Loading Piper TTS Model...")
+
     try:
         if not os.path.exists(MODEL_PATH):
             raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
+
         ml_models["voice"] = PiperVoice.load(MODEL_PATH)
-        print("✅ Model loaded successfully into memory!")
+
+        if not ml_models["voice"]:
+            raise RuntimeError("Model loaded as None")
+
+        logger.info("✅ Model loaded successfully into memory!")
+
     except Exception as e:
-        print(f"❌ Critical Error loading model: {e}")
+        logger.critical(f"❌ Failed to load model: {e}")
         ml_models["voice"] = None
-        
-    yield 
-    
-    print("🧹 Shutting down: Clearing memory...")
+
+    yield
+
+    logger.info("🧹 Shutting down: Clearing memory...")
     ml_models.clear()
 
-# Initialize FastAPI application
-app = FastAPI(title="Piper TTS Microservice", version="1.4.1", lifespan=lifespan)
 
-# Pydantic schema for request validation
+# ==========================
+# FASTAPI INIT
+# ==========================
+
+app = FastAPI(
+    title="Piper TTS Microservice",
+    version="1.5.0",
+    lifespan=lifespan
+)
+
+
+# ==========================
+# REQUEST SCHEMA
+# ==========================
+
 class TTSRequest(BaseModel):
-    text: str = Field(..., min_length=1, description="The text to synthesize into speech.")
+    text: str = Field(..., min_length=1, max_length=1000)
+
+
+# ==========================
+# CLEANUP FUNCTION
+# ==========================
 
 def cleanup_file(filepath: str):
-    """
-    Background task to delete the temporary audio file after the response is sent.
-    """
     if os.path.exists(filepath):
         try:
             os.remove(filepath)
-            print(f"🗑️ Cleanup done: {filepath}")
+            logger.info(f"🗑️ Cleanup done: {filepath}")
         except Exception as e:
-            print(f"❌ Failed to delete {filepath}: {e}")
+            logger.error(f"❌ Failed to delete {filepath}: {e}")
+
+
+# ==========================
+# ROUTES
+# ==========================
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint to verify model readiness."""
     if not ml_models.get("voice"):
         raise HTTPException(status_code=503, detail="Model is not loaded properly.")
-    return {"status": "ok", "message": "Piper TTS Worker is running seamlessly."}
+
+    return {
+        "status": "ok",
+        "message": "Piper TTS Worker running smoothly 🚀"
+    }
+
 
 @app.post("/generate-audio")
 async def generate_audio(request: TTSRequest, background_tasks: BackgroundTasks):
-    """
-    Generates a .wav audio file from the provided text using the pre-loaded Piper TTS model.
-    """
+
     voice_model = ml_models.get("voice")
-    
-    # Edge Case: Model failed to load during startup
+
     if not voice_model:
         raise HTTPException(status_code=500, detail="TTS Model is not initialized.")
-    
-    # Generate unique filename for concurrency safety
+
     session_id = str(uuid.uuid4())
     output_filepath = os.path.join(TEMP_DIR, f"voiceover_{session_id}.wav")
 
     try:
-        print(f"🎙️ Synthesizing audio for: '{request.text[:40]}...'")
-        
-        # FIX: Explicitly set audio parameters before writing frames
+        logger.info(f"🎙️ Generating audio for text length: {len(request.text)}")
+
         with wave.open(output_filepath, "wb") as wav_file:
-            wav_file.setnchannels(1)  # 1 channel (Mono)
-            wav_file.setsampwidth(2)  # 2 bytes (16-bit audio)
-            wav_file.setframerate(voice_model.config.sample_rate)  # Use model's native sample rate
-            
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+
+            # Safe sample rate fallback
+            sample_rate = getattr(
+                voice_model.config,
+                "sample_rate",
+                22050
+            )
+            wav_file.setframerate(sample_rate)
+
             voice_model.synthesize(request.text, wav_file)
 
-        # Schedule the cleanup task
         background_tasks.add_task(cleanup_file, output_filepath)
 
-        # Return the generated audio file
         return FileResponse(
-            output_filepath, 
-            media_type="audio/wav", 
+            output_filepath,
+            media_type="audio/wav",
             filename=f"voiceover_{session_id[:8]}.wav"
         )
 
     except Exception as e:
-        # Error Handling: Ensure cleanup happens even if synthesis fails
         cleanup_file(output_filepath)
-        raise HTTPException(status_code=500, detail=f"Audio generation failed: {str(e)}")
+        logger.error(f"❌ Audio generation failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Audio generation failed."
+        )
