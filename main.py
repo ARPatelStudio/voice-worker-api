@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from piper.voice import PiperVoice
 import os
 import uuid
-import wave  # <-- Naya import yahan add kiya hai
+import wave
 
 # Define constants
 MODEL_PATH = "/app/models/voice.onnx"
@@ -78,8 +78,12 @@ async def generate_audio(request: TTSRequest, background_tasks: BackgroundTasks)
     try:
         print(f"🎙️ Synthesizing audio for: '{request.text[:40]}...'")
         
-        # Sahi format: Yahan 'wave.open' ka use kiya hai perfect audio likhne ke liye
+        # FIX: Explicitly set audio parameters before writing frames
         with wave.open(output_filepath, "wb") as wav_file:
+            wav_file.setnchannels(1)  # 1 channel (Mono)
+            wav_file.setsampwidth(2)  # 2 bytes (16-bit audio)
+            wav_file.setframerate(voice_model.config.sample_rate)  # Use model's native sample rate
+            
             voice_model.synthesize(request.text, wav_file)
 
         # Schedule the cleanup task
